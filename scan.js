@@ -7,13 +7,32 @@ const traverse = require("@babel/traverse").default;
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 const cheerio = require("cheerio");
 
-const args = minimist(process.argv.slice(2));
+// Parse arguments, allowing multiple -H headers
+const args = minimist(process.argv.slice(2), {
+  string: ["url", "file", "rules", "header"],
+  alias: { H: "header" },
+});
+
 const url = args.url;
 const filePath = args.file;
 const rulesPath = args.rules;
 
+// Parse headers into an object
+const headersArray = Array.isArray(args.header) ? args.header : (args.header ? [args.header] : []);
+const headers = {};
+
+headersArray.forEach(h => {
+  const [key, ...valParts] = h.split(":");
+  if (key && valParts.length) {
+    headers[key.trim()] = valParts.join(":").trim();
+  } else {
+    console.error(`❌ Invalid header format: ${h}`);
+    process.exit(1);
+  }
+});
+
 if ((!url && !filePath) || !rulesPath) {
-  console.error("❌ Usage: node parser.js --url <URL> --file <filePath> --rules <rules.txt>");
+  console.error("❌ Usage: node parser.js --url <URL> --file <filePath> --rules <rules.txt> [-H \"Header: Value\"]...");
   process.exit(1);
 }
 
@@ -31,7 +50,7 @@ try {
 
 // Function to fetch content from a URL
 const fetchContent = async (url) => {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
   return res.text();
 };
@@ -60,13 +79,12 @@ const processContent = (content, isHtml) => {
           const propertyName = prop.name || (prop.value ?? "");
           const fullAccess = `${objectName}.${propertyName}`;
 
-          // Check for matching rules for property access
           for (const rule of rules) {
             if (rule.startsWith("element.") && fullAccess.startsWith("element")) {
               const ruleProp = rule.split(".")[1];
               if (
-                ruleProp === propertyName || // exact match
-                (ruleProp === "onevent" && propertyName.startsWith("on")) // wildcard
+                ruleProp === propertyName ||
+                (ruleProp === "onevent" && propertyName.startsWith("on"))
               ) {
                 const { line, column } = path.node.loc.start;
                 console.log(`⚠️ Rule match "${rule}" at script ${idx + 1}, line ${line}, column ${column}: ${fullAccess}`);
@@ -88,13 +106,12 @@ const processContent = (content, isHtml) => {
             const propertyName = prop.name || (prop.value ?? "");
             const fullAccess = `${objectName}.${propertyName}`;
 
-            // Check for matching rules for property assignment
             for (const rule of rules) {
               if (rule.startsWith("element.") && fullAccess.startsWith("element")) {
                 const ruleProp = rule.split(".")[1];
                 if (
-                  ruleProp === propertyName || // exact match
-                  (ruleProp === "onevent" && propertyName.startsWith("on")) // wildcard
+                  ruleProp === propertyName ||
+                  (ruleProp === "onevent" && propertyName.startsWith("on"))
                 ) {
                   const { line, column } = left.loc.start;
                   console.log(`⚠️ Rule match "${rule}" at script ${idx + 1}, line ${line}, column ${column}: ${fullAccess}`);
@@ -117,7 +134,6 @@ const processContent = (content, isHtml) => {
             found = true;
           }
 
-          // Detect jQuery-style method calls like $("#id").html()
           if (callee.type === "MemberExpression") {
             const prop = callee.property.name || callee.property.value;
             if (rules.includes(prop)) {
@@ -150,16 +166,15 @@ const processContent = (content, isHtml) => {
         const propertyName = prop.name || (prop.value ?? "");
         const fullAccess = `${objectName}.${propertyName}`;
 
-        // Check for matching rules for property access
         for (const rule of rules) {
           if (rule.startsWith("element.") && fullAccess.startsWith("element")) {
             const ruleProp = rule.split(".")[1];
             if (
-              ruleProp === propertyName || // exact match
-              (ruleProp === "onevent" && propertyName.startsWith("on")) // wildcard
+              ruleProp === propertyName ||
+              (ruleProp === "onevent" && propertyName.startsWith("on"))
             ) {
               const { line, column } = path.node.loc.start;
-              console.log(`⚠️ Rule match "${rule}" at line ${path.node.loc.start.line}, column ${path.node.loc.start.column}: ${fullAccess}`);
+              console.log(`⚠️ Rule match "${rule}" at line ${line}, column ${column}: ${fullAccess}`);
               found = true;
             }
           } else if (rule === propertyName || fullAccess === rule) {
@@ -178,21 +193,20 @@ const processContent = (content, isHtml) => {
           const propertyName = prop.name || (prop.value ?? "");
           const fullAccess = `${objectName}.${propertyName}`;
 
-          // Check for matching rules for property assignment
           for (const rule of rules) {
             if (rule.startsWith("element.") && fullAccess.startsWith("element")) {
               const ruleProp = rule.split(".")[1];
               if (
-                ruleProp === propertyName || // exact match
-                (ruleProp === "onevent" && propertyName.startsWith("on")) // wildcard
+                ruleProp === propertyName ||
+                (ruleProp === "onevent" && propertyName.startsWith("on"))
               ) {
                 const { line, column } = left.loc.start;
-                console.log(`⚠️ Rule match "${rule}" at line ${path.node.loc.start.line}, column ${path.node.loc.start.column}: ${fullAccess}`);
+                console.log(`⚠️ Rule match "${rule}" at line ${line}, column ${column}: ${fullAccess}`);
                 found = true;
               }
             } else if (rule === propertyName || fullAccess === rule) {
               const { line, column } = left.loc.start;
-              console.log(`⚠️ Rule match "${rule}" at line ${path.node.loc.start.line}, column ${path.node.loc.start.column}: ${fullAccess}`);
+              console.log(`⚠️ Rule match "${rule}" at line ${line}, column ${column}: ${fullAccess}`);
               found = true;
             }
           }
@@ -203,16 +217,15 @@ const processContent = (content, isHtml) => {
         const callee = path.node.callee;
         if (callee.type === "Identifier" && rules.includes(callee.name)) {
           const { line, column } = path.node.loc.start;
-          console.log(`⚠️ Rule match "${callee.name}" at line ${path.node.loc.start.line}, column ${path.node.loc.start.column}`);
+          console.log(`⚠️ Rule match "${callee.name}" at line ${line}, column ${column}`);
           found = true;
         }
 
-        // Detect jQuery-style method calls like $("#id").html()
         if (callee.type === "MemberExpression") {
           const prop = callee.property.name || callee.property.value;
           if (rules.includes(prop)) {
             const { line, column } = callee.loc.start;
-            console.log(`⚠️ Rule match ".${prop}()" at line ${path.node.loc.start.line}, column ${path.node.loc.start.column}`);
+            console.log(`⚠️ Rule match ".${prop}()" at line ${line}, column ${column}`);
             found = true;
           }
         }
