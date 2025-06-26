@@ -1,4 +1,8 @@
 setInterval
+addEventListener
+hash
+location.hash
+decodeURIComponent
 execCommand
 execScript
 setTimeout
@@ -91,3 +95,5 @@ innerHTML
 outerHTML
 insertAdjacentHTML
 onevent
+open
+opener
